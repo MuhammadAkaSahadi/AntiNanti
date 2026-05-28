@@ -92,7 +92,7 @@ export default function Dashboard() {
   const [briefingData, setBriefingData] = useState({
     cuaca: "Lokasi belum ditentukan",
     laluLintas: "Lalu lintas - Belum dimuat",
-    saranAI: "Klik tombol segarkan di samping untuk memicu Briefing Pagi AI beralaskan pencarian internet real-time (cuaca & kemacetan di daerah Anda) dan jadwal tugas Anda.",
+    saranAI: "Klik tombol segarkan di samping untuk memicu Briefing AI beralaskan pencarian internet real-time (cuaca & kemacetan di daerah Anda) dan jadwal tugas Anda.",
   });
 
   useEffect(() => {
