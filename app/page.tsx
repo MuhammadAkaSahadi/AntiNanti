@@ -34,9 +34,6 @@ export default function Home() {
       <header className="border-b border-stone-200/50 bg-white/70 backdrop-blur-md sticky top-0 z-40 px-6 py-4 dark:bg-stone-950/70 dark:border-stone-850">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-800 text-white font-extrabold text-lg">
-              AN
-            </div>
             <div>
               <span className="font-black text-amber-950 dark:text-amber-50 tracking-tight text-base block">AntiNanti</span>
               <span className="text-[9px] text-stone-400 font-mono tracking-widest block uppercase">AI Productivity</span>
