@@ -45,3 +45,7 @@ CLAUDE.md
 AGENTS.md
 GEMINI.md
 APP_SPEC.md
+
+# Firebase cache and functions builds
+.firebase/
+firebase-debug.log

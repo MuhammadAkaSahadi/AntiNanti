@@ -22,11 +22,21 @@ import {
   listenToTasks, 
   addTaskToDB, 
   updateTaskInDB, 
-  saveAILogToDB 
+  saveAILogToDB,
+  saveChatMessageToDB,
+  listenToChatMessages
 } from "@/lib/firebaseService";
 
 export default function Dashboard() {
-  const { user, dbUser, loading: authLoading, logout } = useAuth();
+  const { 
+    user, 
+    dbUser, 
+    loading: authLoading, 
+    logout, 
+    googleAccessToken, 
+    signInWithGoogle, 
+    setGoogleAccessToken 
+  } = useAuth();
   const router = useRouter();
   
   const [currentTab, setCurrentTab] = useState("home");
@@ -57,29 +67,113 @@ export default function Dashboard() {
     }
   }, [user]);
 
+  // Real-time Firestore Chat Messages Sync
+  useEffect(() => {
+    if (user) {
+      const unsubscribe = listenToChatMessages(user.uid, (messagesList) => {
+        if (messagesList.length === 0) {
+          setChatMessages([
+            {
+              sender: "ai",
+              text: "Halo! Saya asisten proaktif AntiNanti. Saya melihat Anda memiliki tugas di Firestore. Jika Anda memiliki alasan menunda, silakan ketik di sini agar saya bantu memecah bebannya.",
+            },
+          ]);
+        } else {
+          setChatMessages(messagesList);
+        }
+      });
+      return () => unsubscribe();
+    }
+  }, [user]);
+
   // AI Briefing State
   const [isBriefingLoading, setIsBriefingLoading] = useState(false);
+  const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [briefingData, setBriefingData] = useState({
-    cuaca: "Jember - Memuat...",
-    laluLintas: "Lalu lintas - Memuat...",
-    saranAI: "Klik tombol segarkan di samping untuk memicu AI Morning Briefing beralaskan pencarian internet real-time (cuaca & kemacetan Jember/UNEJ) dan jadwal tugas Anda.",
+    cuaca: "Lokasi belum ditentukan",
+    laluLintas: "Lalu lintas - Belum dimuat",
+    saranAI: "Klik tombol segarkan di samping untuk memicu Briefing Pagi AI beralaskan pencarian internet real-time (cuaca & kemacetan di daerah Anda) dan jadwal tugas Anda.",
   });
 
-  const handleRefreshBriefing = async () => {
-    if (!user) return;
+  useEffect(() => {
+    if (dbUser && briefingData.cuaca === "Lokasi belum ditentukan") {
+      setBriefingData((prev) => ({
+        ...prev,
+        cuaca: `${dbUser.location || "Jember"} - Belum disegarkan`,
+      }));
+    }
+  }, [dbUser, briefingData.cuaca]);
+
+  // Periodic deadline checker (automatic penalty dispatch)
+  useEffect(() => {
+    if (!user || !dbUser || tasks.length === 0) return;
+
+    const checkDeadlines = async () => {
+      const now = new Date();
+      
+      for (const task of tasks) {
+        // Hanya cek tugas yang belum selesai/gagal
+        if (task.status !== "completed" && task.status !== "failed") {
+          const deadlineDate = new Date(task.deadline);
+          
+          if (!isNaN(deadlineDate.getTime()) && deadlineDate < now) {
+            console.log(`Tenggat waktu terlewati untuk tugas: ${task.title}. Melakukan otomatisasi penalti.`);
+            
+            try {
+              // 1. Ubah status tugas di DB menjadi 'failed' terlebih dahulu agar tidak mengirim berulang kali
+              await updateTaskInDB(task.id || "", { status: "failed" });
+              
+              // 2. Kirim email notifikasi penalti otomatis jika partner didaftarkan
+              if (dbUser.partnerEmail) {
+                const res = await fetch("/api/email/penalty", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    displayName: dbUser.displayName,
+                    email: dbUser.email,
+                    partnerEmail: dbUser.partnerEmail,
+                    taskTitle: task.title,
+                  }),
+                });
+                const result = await res.json();
+                if (result.success) {
+                  showToast(`Tenggat waktu habis! Email laporan dikirim ke partner.`, "error");
+                } else {
+                  showToast(`Tenggat waktu habis! Gagal kirim email: ${result.error || "Kesalahan Resend."}`, "error");
+                }
+              } else {
+                showToast(`Tenggat waktu habis untuk tugas: ${task.title}`, "error");
+              }
+            } catch (err) {
+              console.error("Gagal memproses tugas kedaluwarsa:", err);
+            }
+          }
+        }
+      }
+    };
+
+    const intervalId = setInterval(checkDeadlines, 10000); // periksa setiap 10 detik
+    checkDeadlines(); // jalankan langsung sekali di awal
+
+    return () => clearInterval(intervalId);
+  }, [tasks, user, dbUser]);
+
+  const handleRefreshBriefing = async (overrideLocation?: string) => {
+    if (!user || !dbUser) return;
+    const queryLocation = overrideLocation || dbUser.location || "Jember";
     setIsBriefingLoading(true);
     try {
       const res = await fetch("/api/ai/briefing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tasks }),
+        body: JSON.stringify({ tasks, location: queryLocation }),
       });
       const result = await res.json();
       if (result.success && result.data) {
         const payload = result.data;
         setBriefingData({
-          cuaca: "Jember - Real-time Search Grounded",
-          laluLintas: "Lalu lintas UNEJ - Terpantau Google Search",
+          cuaca: payload.ringkasan_cuaca || `${queryLocation} - Terpantau`,
+          laluLintas: payload.ringkasan_lalu_lintas || "Lalu lintas terpantau lancar",
           saranAI: payload.pesan_utama,
         });
         showToast("Briefing pagi diperbarui via Gemini Search Grounding!", "success");
@@ -92,6 +186,22 @@ export default function Dashboard() {
       showToast("Gagal mengambil AI briefing harian.", "error");
     } finally {
       setIsBriefingLoading(false);
+    }
+  };
+
+  const handleUpdateLocation = async (newLocation: string) => {
+    if (!user || !dbUser) return;
+    try {
+      const updatedProfile = {
+        ...dbUser,
+        location: newLocation,
+      };
+      await saveUserProfile(user.uid, updatedProfile);
+      showToast(`Lokasi berhasil diperbarui ke: ${newLocation}`, "success");
+      await handleRefreshBriefing(newLocation);
+    } catch (error) {
+      console.error(error);
+      showToast("Gagal memperbarui lokasi.", "error");
     }
   };
 
@@ -144,7 +254,7 @@ export default function Dashboard() {
     }
   };
 
-  const handleAskForMoreTime = async () => {
+  const handleAskForMoreTime = async (reason?: string) => {
     if (!activeTask) return;
     setIsNegotiating(true);
     const nextRound = negotiationRound + 1;
@@ -159,6 +269,7 @@ export default function Dashboard() {
           microTasks: negotiatedMicroTasks,
           requestExtension: true,
           negotiationRound: nextRound,
+          reason: reason || "",
         }),
       });
       const result = await res.json();
@@ -266,7 +377,7 @@ export default function Dashboard() {
       }
     } catch (error: any) {
       console.error(error);
-      showToast("Gagal mengirim notifikasi email sanksi.", "error");
+      showToast(error.message || "Gagal mengirim notifikasi email sanksi.", "error");
     }
   };
 
@@ -277,6 +388,132 @@ export default function Dashboard() {
     0
   );
   const overallProgress = totalMicroTasks > 0 ? Math.round((completedMicroTasks / totalMicroTasks) * 100) : 0;
+
+  const handleSyncToGoogleCalendar = async () => {
+    if (!user || !dbUser) return;
+
+    // 1. Jika ini mock user di development, simulasikan saja sukses
+    if (user.uid.startsWith("mock-") || googleAccessToken === "mock-google-access-token-12345") {
+      setIsSyncingCalendar(true);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      setIsSyncingCalendar(false);
+      showToast("Simulasi: Tugas berhasil disinkronkan ke Google Calendar Anda!", "success");
+      return;
+    }
+
+    let token = googleAccessToken;
+
+    // 2. Jika token tidak ada, jalankan ulang login Google untuk meminta persetujuan
+    if (!token) {
+      const confirmAuth = window.confirm(
+        "AntiNanti memerlukan izin akses Google Calendar untuk menambahkan jadwal tugas Anda. Hubungkan sekarang?"
+      );
+      if (!confirmAuth) return;
+
+      setIsSyncingCalendar(true);
+      try {
+        await signInWithGoogle();
+        const freshToken = sessionStorage.getItem("google_access_token");
+        if (!freshToken) {
+          throw new Error("Gagal memperoleh izin akses dari Google.");
+        }
+        token = freshToken;
+      } catch (err: any) {
+        console.error("Authentication error during Calendar sync:", err);
+        showToast("Gagal menghubungkan akun Google Anda.", "error");
+        setIsSyncingCalendar(false);
+        return;
+      }
+    }
+
+    setIsSyncingCalendar(true);
+    const activeTasks = tasks.filter((t) => t.status !== "completed");
+
+    if (activeTasks.length === 0) {
+      showToast("Tidak ada tugas belum selesai yang perlu disinkronkan.", "info");
+      setIsSyncingCalendar(false);
+      return;
+    }
+
+    let successCount = 0;
+    let authErrorOccurred = false;
+
+    try {
+      for (const task of activeTasks) {
+        const startDateTime = new Date(task.deadline);
+        const validStart = isNaN(startDateTime.getTime()) ? new Date() : startDateTime;
+        const validEnd = new Date(validStart.getTime() + 60 * 60 * 1000); // +1 jam
+
+        const description = `Pecahan tugas (Micro-tasks) dari aplikasi AntiNanti:\n` +
+          task.microTasks.map((mt) => `- ${mt.title} (${mt.duration} menit, Urgensi: ${mt.urgency}, Status: ${mt.status})`).join("\n");
+
+        const eventPayload = {
+          summary: `[AntiNanti] ${task.title}`,
+          description: description,
+          start: {
+            dateTime: validStart.toISOString(),
+            timeZone: "Asia/Jakarta"
+          },
+          end: {
+            dateTime: validEnd.toISOString(),
+            timeZone: "Asia/Jakarta"
+          }
+        };
+
+        const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(eventPayload)
+        });
+
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}));
+          console.error(`Google Calendar Error (${response.status}):`, errBody);
+          
+          if (response.status === 401) {
+            authErrorOccurred = true;
+            break;
+          }
+          
+          if (response.status === 403) {
+            const errMsg = errBody?.error?.message || "Akses ditolak (403 Forbidden). Pastikan Google Calendar API sudah diaktifkan di GCP Console.";
+            showToast(`Error: ${errMsg}`, "error");
+            break;
+          }
+        } else {
+          successCount++;
+        }
+      }
+
+      if (authErrorOccurred) {
+        setGoogleAccessToken(null);
+        showToast("Sesi Google Calendar kadaluarsa. Silakan tekan tombol kembali untuk login ulang.", "error");
+      } else if (successCount > 0) {
+        showToast(`${successCount} tugas berhasil disinkronkan ke Google Calendar!`, "success");
+      } else if (successCount === 0 && !authErrorOccurred) {
+        // Only show generic error if we didn't show a specific 403/error toast already
+        // Wait, if a toast was already shown, we can skip showing a generic fail toast or just show it if nothing was shown.
+      }
+    } catch (error: any) {
+      console.error("Google Calendar API request failed:", error);
+      showToast("Terjadi kesalahan koneksi ke Google Calendar.", "error");
+    } finally {
+      setIsSyncingCalendar(false);
+    }
+  };
+
+  const handleCompleteTask = async (taskId: string) => {
+    try {
+      await updateTaskInDB(taskId, { status: "completed" });
+      showToast("Tugas berhasil diselesaikan! Kerja bagus!", "success");
+    } catch (error) {
+      console.error("Failed to complete task:", error);
+      showToast("Gagal mengakhiri tugas.", "error");
+    }
+  };
 
   // Settings Save Profile Function
   const handleSaveSettings = async (data: User) => {
@@ -290,47 +527,44 @@ export default function Dashboard() {
     }
   };
 
-  // Chat State Simulation
-  const [chatMessages, setChatMessages] = useState<Array<{ sender: "ai" | "user"; text: string }>>([
-    {
-      sender: "ai",
-      text: "Halo! Saya asisten proaktif AntiNanti. Saya melihat Anda memiliki tugas di Firestore. Jika Anda memiliki alasan menunda, silakan ketik di sini agar saya bantu memecah bebannya.",
-    },
-  ]);
+  // Chat State Simulation (Updated in real-time by Firestore listener)
+  const [chatMessages, setChatMessages] = useState<Array<{ sender: "ai" | "user"; text: string }>>([]);
   const [isAiTyping, setIsAiTyping] = useState(false);
 
   const handleSendMessage = async (text: string) => {
-    const newUserMessage = { sender: "user" as const, text };
-    setChatMessages((prev) => [...prev, newUserMessage]);
+    if (!user) return;
     setIsAiTyping(true);
 
     try {
+      // 1. Simpan pesan pengguna ke Firestore. Listener otomatis mendeteksi dan merender di UI.
+      await saveChatMessageToDB(user.uid, "user", text);
+
+      // 2. Kirim pesan ke API AI untuk diproses
       const res = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
           history: chatMessages,
+          tasks: tasks,
         }),
       });
       const result = await res.json();
       if (result.success && result.data?.reply) {
-        setChatMessages((prev) => [...prev, { sender: "ai", text: result.data.reply }]);
-        if (user) {
-          await saveAILogToDB(user.uid, "chat", `User: ${text} | AI: ${result.data.reply}`);
-        }
+        // 3. Simpan balasan AI ke Firestore. Listener otomatis mendeteksi dan merender di UI.
+        await saveChatMessageToDB(user.uid, "ai", result.data.reply);
+        await saveAILogToDB(user.uid, "chat", `User: ${text} | AI: ${result.data.reply}`);
       } else {
         throw new Error(result.error || "Gagal menghubungi AI");
       }
     } catch (error) {
       console.error("AI Chat error:", error);
-      setChatMessages((prev) => [
-        ...prev,
-        { 
-          sender: "ai", 
-          text: "Maaf, koneksi otak saya sedang terganggu. Mari diskusikan alasan Anda sekali lagi!" 
-        }
-      ]);
+      // Simpan respon fallback error agar tetap tersimpan dalam history
+      await saveChatMessageToDB(
+        user.uid, 
+        "ai", 
+        "Maaf, koneksi otak saya sedang terganggu. Mari diskusikan alasan Anda sekali lagi!"
+      );
     } finally {
       setIsAiTyping(false);
     }
@@ -410,7 +644,9 @@ export default function Dashboard() {
             <BriefingCard 
               isBriefingLoading={isBriefingLoading} 
               briefingData={briefingData} 
-              onRefresh={handleRefreshBriefing} 
+              onRefresh={() => handleRefreshBriefing()} 
+              location={dbUser.location || "Jember"}
+              onUpdateLocation={handleUpdateLocation}
             />
 
             {/* WIDGET 2: PROGRESS TRACKER */}
@@ -418,6 +654,8 @@ export default function Dashboard() {
               completedMicroTasks={completedMicroTasks}
               totalMicroTasks={totalMicroTasks}
               overallProgress={overallProgress}
+              onSyncCalendar={handleSyncToGoogleCalendar}
+              isSyncing={isSyncingCalendar}
             />
 
             {/* WIDGET 3: DYNAMIC TASK NEGOTIATION LIST */}
@@ -438,24 +676,14 @@ export default function Dashboard() {
                 </div>
               ) : (
                 tasks.map((task) => (
-                  <div key={task.id} className="relative group">
-                    <TaskCard 
-                      task={task} 
-                      onToggleMicroTask={toggleMicroTaskStatus}
-                      onStartNegotiation={startNegotiation}
-                    />
-                    
-                    {/* Manual trigger for Resend email validation */}
-                    {task.status !== "completed" && (
-                      <button
-                        onClick={() => handleSimulateEmailPenalty(task)}
-                        className="absolute right-40 top-4 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 rounded-full bg-rose-50 border border-rose-100 hover:bg-rose-100 px-3 py-1.5 text-[10px] font-bold text-rose-800 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-400 shadow-sm"
-                        title="Simulasikan pelanggaran waktu tugas ini ke partner"
-                      >
-                        <Mail className="h-3 w-3" /> Penalti
-                      </button>
-                    )}
-                  </div>
+                  <TaskCard 
+                    key={task.id}
+                    task={task} 
+                    onToggleMicroTask={toggleMicroTaskStatus}
+                    onStartNegotiation={startNegotiation}
+                    onCompleteTask={handleCompleteTask}
+                    onSimulatePenalty={handleSimulateEmailPenalty}
+                  />
                 ))
               )}
             </div>
@@ -486,12 +714,12 @@ export default function Dashboard() {
             <div className="flex flex-col gap-2">
               <h3 className="text-sm font-bold text-stone-500 uppercase px-1">Tugas Terdaftar ({tasks.length})</h3>
               {tasks.map((task) => (
-                <div key={task.id} className="flex justify-between items-center p-4 rounded-xl bg-white border border-stone-200 shadow-sm dark:bg-stone-950 dark:border-stone-800">
-                  <div>
-                    <h4 className="font-bold text-sm text-stone-900 dark:text-white">{task.title}</h4>
-                    <span className="text-[11px] text-stone-400">Deadline: {task.deadline}</span>
+                <div key={task.id} className="flex justify-between items-center gap-4 p-4 rounded-xl bg-white border border-stone-200 shadow-sm dark:bg-stone-950 dark:border-stone-800">
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-bold text-sm text-stone-900 dark:text-white break-words">{task.title}</h4>
+                    <span className="text-[11px] text-stone-400 block mt-0.5">Deadline: {task.deadline}</span>
                   </div>
-                  <span className="text-xs font-bold text-emerald-800 dark:text-emerald-400">
+                  <span className="text-xs font-bold text-emerald-800 dark:text-emerald-400 shrink-0">
                     {task.microTasks.length} Pecahan
                   </span>
                 </div>

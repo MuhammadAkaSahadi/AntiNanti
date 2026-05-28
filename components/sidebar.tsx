@@ -23,15 +23,11 @@ export function Sidebar({ currentTab, setCurrentTab, onLogout }: NavigationProps
       <header className="sticky top-0 z-40 w-full border-b border-stone-200 bg-white/80 backdrop-blur-md dark:border-stone-800 dark:bg-stone-950/80">
         <div className="flex h-16 items-center justify-between px-4 md:px-6">
           <div className="flex items-center gap-2">
-            {/* Logo AntiNanti */}
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-800 text-white shadow-md shadow-emerald-800/20">
-              <span className="text-lg font-black tracking-tighter">AN</span>
-            </div>
             <div>
               <span className="text-base font-bold text-stone-900 dark:text-white leading-none block">
                 AntiNanti
               </span>
-              <span className="text-[10px] text-stone-400 block -mt-0.5">
+              <span className="text-[10px] text-stone-400 block mt-1">
                 AI Productivity
               </span>
             </div>

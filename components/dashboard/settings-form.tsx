@@ -37,8 +37,8 @@ export function SettingsForm({ userProfile, onSaveSettings }: SettingsFormProps)
               <input
                 type="text"
                 {...register("displayName")}
-                className={`w-full rounded-xl border p-3 text-sm focus:ring-1 focus:ring-emerald-800 focus:border-emerald-800 focus:outline-none dark:bg-stone-850 ${
-                  errors.displayName ? "border-rose-500 focus:ring-rose-500" : "border-stone-250"
+                className={`w-full rounded-xl border p-3 text-sm text-stone-900 dark:text-stone-100 bg-white dark:bg-stone-900 focus:ring-1 focus:ring-emerald-800 focus:border-emerald-800 focus:outline-none ${
+                  errors.displayName ? "border-rose-500 focus:ring-rose-500" : "border-stone-200 dark:border-stone-800"
                 }`}
               />
               {errors.displayName && (
@@ -52,8 +52,8 @@ export function SettingsForm({ userProfile, onSaveSettings }: SettingsFormProps)
             <input
               type="email"
               {...register("email")}
-              className={`w-full rounded-xl border p-3 text-sm focus:ring-1 focus:ring-emerald-800 focus:border-emerald-800 focus:outline-none dark:bg-stone-850 ${
-                errors.email ? "border-rose-500 focus:ring-rose-500" : "border-stone-250"
+              className={`w-full rounded-xl border p-3 text-sm text-stone-900 dark:text-stone-100 bg-white dark:bg-stone-900 focus:ring-1 focus:ring-emerald-800 focus:border-emerald-800 focus:outline-none ${
+                errors.email ? "border-rose-500 focus:ring-rose-500" : "border-stone-200 dark:border-stone-800"
               }`}
             />
             {errors.email && (
@@ -72,8 +72,8 @@ export function SettingsForm({ userProfile, onSaveSettings }: SettingsFormProps)
               type="email"
               {...register("partnerEmail")}
               placeholder="partner@belajar.com"
-              className={`w-full rounded-xl border p-3 text-sm focus:ring-1 focus:ring-emerald-800 focus:border-emerald-800 focus:outline-none dark:bg-stone-850 ${
-                errors.partnerEmail ? "border-rose-500 focus:ring-rose-500" : "border-stone-250"
+              className={`w-full rounded-xl border p-3 text-sm text-stone-900 dark:text-stone-100 bg-white dark:bg-stone-900 focus:ring-1 focus:ring-emerald-800 focus:border-emerald-800 focus:outline-none ${
+                errors.partnerEmail ? "border-rose-500 focus:ring-rose-500" : "border-stone-200 dark:border-stone-800"
               }`}
             />
             {errors.partnerEmail && (

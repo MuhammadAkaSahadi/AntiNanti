@@ -1,11 +1,7 @@
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
 import { NextResponse } from "next/server";
-
-const google = createGoogleGenerativeAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+import { withKeyRotation } from "@/lib/gemini";
 
 export async function POST(req: Request) {
   let message = "";
@@ -14,6 +10,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     message = body.message || "";
     history = body.history || [];
+    const tasks = body.tasks || [];
 
     const systemPrompt = `
 Anda adalah AI Procrastination Negotiator pada aplikasi AntiNanti.
@@ -24,20 +21,27 @@ Aturan Respon:
 2. Tawarkan solusi praktis instan (seperti teknik Pomodoro, aturan 2 menit, atau mencicil paragraf pertama).
 3. Jangan biarkan mereka membenarkan penundaan. Counter alasan mereka secara logis dan bersahabat.
 4. Gunakan Bahasa Indonesia yang santai tapi sopan (sesuai gaya mahasiswa).
+5. JAWAB DENGAN SANGAT SINGKAT, PADAT, langsung pada intinya (maksimal 2 kalimat atau 40 kata). Jangan bertele-tele.
+6. Anda memiliki akses ke daftar tugas aktif milik pengguna. Gunakan data tersebut jika pengguna bertanya tentang tugas mereka, deadline, atau meminta saran spesifik tentang apa yang harus dikerjakan.
 `;
 
+    // Batasi riwayat chat hanya 6 pesan terakhir (3 pasang percakapan) untuk menghemat token masukan (input tokens)
     const chatContext = history
-      ? history.map((msg: any) => `${msg.sender === "user" ? "Pengguna" : "AI"}: ${msg.text}`).join("\n")
+      ? history.slice(-6).map((msg: any) => `${msg.sender === "user" ? "Pengguna" : "AI"}: ${msg.text}`).join("\n")
       : "";
 
-    const { object } = await generateObject({
-      model: google("gemini-2.0-flash"),
-      schema: z.object({
-        reply: z.string().describe("Tanggapan AI untuk membantu dan memotivasi pengguna agar segera bekerja."),
-      }),
-      prompt: `
+    const { object } = await withKeyRotation(async (google) => {
+      return await generateObject({
+        model: google("gemini-2.5-flash"),
+        schema: z.object({
+          reply: z.string().describe("Tanggapan AI yang sangat singkat (maksimal 2 kalimat atau 40 kata) untuk memotivasi pengguna atau menjawab pertanyaan tugas mereka secara langsung."),
+        }),
+        prompt: `
 Latar belakang instruksi sistem:
 ${systemPrompt}
+
+Daftar tugas aktif milik pengguna saat ini:
+${JSON.stringify(tasks, null, 2)}
 
 Riwayat obrolan sebelumnya (jika ada):
 ${chatContext}
@@ -45,6 +49,7 @@ ${chatContext}
 Pesan terbaru pengguna:
 "${message}"
 `,
+      });
     });
 
     return NextResponse.json({

@@ -38,12 +38,20 @@ export async function POST(req: Request) {
     `;
 
     // Send the email using Resend API
-    const data = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: "AntiNanti <onboarding@resend.dev>",
       to: partnerEmail,
       subject: `[AntiNanti Penalty] ${displayName} Gagal Menyelesaikan Tugas: ${taskTitle}`,
       html: htmlContent,
     });
+
+    if (error) {
+      console.error("Resend API delivery error:", error);
+      return NextResponse.json({
+        success: false,
+        error: error.message || "Failed to send email via Resend"
+      }, { status: 403 });
+    }
 
     return NextResponse.json({
       success: true,

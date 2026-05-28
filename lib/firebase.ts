@@ -19,5 +19,6 @@ const googleProvider = new GoogleAuthProvider();
 
 // Standard prompt configurations for Google OAuth login
 googleProvider.setCustomParameters({ prompt: "select_account" });
+googleProvider.addScope("https://www.googleapis.com/auth/calendar.events");
 
 export { app, auth, db, googleProvider };

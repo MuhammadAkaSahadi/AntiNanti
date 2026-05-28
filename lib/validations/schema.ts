@@ -10,6 +10,7 @@ export const UserSchema = z.object({
     .email("Partner email must be a valid email address")
     .or(z.literal(""))
     .optional(),
+  location: z.string().optional(),
 });
 
 // Micro-task validation schema
@@ -31,8 +32,8 @@ export const TaskSchema = z.object({
   userId: z.string().min(1, "User ID is required"),
   title: z.string().min(1, "Task title is required"),
   deadline: z.string().min(1, "Deadline is required"), // Store as ISO String / Formatted Date String
-  status: z.enum(["pending", "progress", "completed"], {
-    message: "Status must be pending, progress, or completed",
+  status: z.enum(["pending", "progress", "completed", "failed"], {
+    message: "Status must be pending, progress, completed, or failed",
   }),
   microTasks: z.array(MicroTaskSchema).default([]),
 });

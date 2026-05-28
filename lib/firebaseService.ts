@@ -23,6 +23,7 @@ export async function saveUserProfile(uid: string, profile: User): Promise<void>
     email: profile.email,
     displayName: profile.displayName,
     partnerEmail: profile.partnerEmail || "",
+    location: profile.location || "Jember",
   }, { merge: true });
 }
 
@@ -84,5 +85,51 @@ export async function saveAILogToDB(userId: string, type: "briefing" | "negotiat
     type,
     content,
     createdAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Save individual chat message to Firestore
+ */
+export async function saveChatMessageToDB(userId: string, sender: "user" | "ai", text: string): Promise<void> {
+  const chatsRef = collection(db, "chats");
+  await addDoc(chatsRef, {
+    userId,
+    sender,
+    text,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Set up real-time listener for chat messages belonging to a specific user
+ */
+export function listenToChatMessages(
+  userId: string, 
+  callback: (messages: { sender: "user" | "ai"; text: string }[]) => void
+) {
+  const chatsRef = collection(db, "chats");
+  const q = query(
+    chatsRef,
+    where("userId", "==", userId)
+  );
+
+  return onSnapshot(q, (snapshot) => {
+    const messagesList: { sender: "user" | "ai"; text: string; createdAt: string }[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      messagesList.push({
+        sender: data.sender as "user" | "ai",
+        text: data.text || "",
+        createdAt: data.createdAt || new Date().toISOString(),
+      });
+    });
+    // Client-side sort by timestamp to avoid requiring composite indexes
+    messagesList.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    
+    // Map back to expected format
+    callback(messagesList.map(msg => ({ sender: msg.sender, text: msg.text })));
+  }, (error) => {
+    console.error("Error listening to Firestore chat messages:", error);
   });
 }
