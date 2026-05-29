@@ -36,7 +36,7 @@ export async function POST(req: Request) {
           <p style="margin: 4px 0 0 0; font-size: 14px; color: #1c1917;"><strong>Komitmen Tugas Yang Dilanggar:</strong> ${taskTitle}</p>
         </div>
         <p style="color: #44403c; font-size: 14px; line-height: 1.6;">
-          Budi Santoso telah gagal menyelesaikan sub-tugas (micro-task) Pomodoro yang sudah disepakati bersama AI dalam batas toleransi waktu yang disetujui. Sebagai partner belajar, Anda dipersilakan untuk memberikan teguran langsung atau membantu rekan Anda kembali fokus.
+          <strong>${displayName || "Rekan Anda"}</strong> telah gagal menyelesaikan sub-tugas (micro-task) Pomodoro yang sudah disepakati bersama AI dalam batas toleransi waktu yang disetujui. Sebagai partner belajar, Anda dipersilakan untuk memberikan teguran langsung atau membantu rekan Anda kembali fokus.
         </p>
         <div style="margin-top: 24px; font-size: 11px; color: #78716c; text-align: center; border-top: 1px solid #e7e5e4; padding-top: 16px;">
           Dikirim otomatis oleh AntiNanti Productivity Engine. Kebebasan menunda adalah ilusi.
